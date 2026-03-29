@@ -3,21 +3,10 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import subprocess
 import os, sys
-# Python 3.13 compat: pkg_resources removed; use stdlib importlib.metadata
 try:
-    from importlib.metadata import packages_distributions as _pkg_dist
-    from importlib.metadata import version as _pkg_version
-    def distributions(pkg=None):
-        if pkg:
-            try:
-                return [type('D', (), {'version': _pkg_version(pkg)})()
-                        ]
-            except Exception:
-                return []
-        return []
-except Exception:
-    def distributions(pkg=None):
-        return []
+    from pkg_resources import get_distribution as distributions
+except:
+    from importlib_metadata import distributions
 from tqdm import tqdm
 import urllib.request
 from packaging import version as pv
@@ -113,49 +102,3 @@ with open(req_file) as file:
             print(f"Warning: Failed to install {package}, ReActor will not work.")
             raise e
 print("Ok")
-
-
-
-# [py313-patch] Safe torch version comparison helper
-def _tv(ver_str):
-    """Parse a torch version string safely, stripping +cu suffixes."""
-    try:
-        from packaging.version import Version
-        clean = ver_str.split('+')[0].split('a')[0].split('b')[0].split('rc')[0]
-        return Version(clean)
-    except Exception:
-        return None
-
-def _tv_gte(installed, required):
-    v = _tv(installed)
-    return v is not None and v >= _tv(required)
-
-def _tv_lt(installed, required):
-    v = _tv(installed)
-    return v is not None and v < _tv(required)
-
-
-# [py313-patch] Auto-install insightface from prebuilt Python 3.13 wheel
-def ensure_insightface():
-    import sys, subprocess, platform
-    try:
-        import insightface
-        return  # already installed
-    except ImportError:
-        pass
-    py = sys.version_info
-    if py.major == 3 and py.minor == 13:
-        machine = platform.machine().lower()
-        system = platform.system().lower()
-        if system == 'windows' and 'amd64' in machine or 'x86_64' in machine:
-            wheel = ('https://github.com/Gourieff/Assets/raw/main/Insightface/'
-                     'insightface-0.7.3-cp313-cp313-win_amd64.whl')
-        elif system == 'linux' and 'x86_64' in machine:
-            wheel = ('https://github.com/Gourieff/Assets/raw/main/Insightface/'
-                     'insightface-0.7.3-cp313-cp313-linux_x86_64.whl')
-        else:
-            wheel = 'insightface==0.7.3'
-        print(f'[ReActor] Installing insightface for Python 3.13 from: {wheel}')
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', wheel])
-    else:
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'insightface==0.7.3'])

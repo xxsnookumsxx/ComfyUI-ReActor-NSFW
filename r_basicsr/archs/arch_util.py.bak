@@ -4,7 +4,7 @@ import torch
 import torchvision
 import warnings
 try:
-    from packaging.version import Version as LooseVersion
+    from distutils.version import LooseVersion
 except:
     from packaging.version import Version
     LooseVersion = Version
