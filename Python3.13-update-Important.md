@@ -16,3 +16,5 @@ File 02: reactor_insightface_fix.py
 This fix updated the install to do the python error checks and install from source for 3.13.
 
 So this version is effectivly for python 3.13 only till at such time comfyui updates to 3.14 and then I'll make a new version for it.
+
+PS: The .bak files are from the original repo I forked in case you need to put everything back to normal.
