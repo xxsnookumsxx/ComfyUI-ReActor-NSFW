@@ -1,20 +1,13 @@
-from transformers import pipeline
-from PIL import Image
-import io
+# scripts/reactor_sfw.py
 import logging
-import os
-import comfy.model_management as model_management
-from reactor_utils import download
-from scripts.reactor_logger import logger
 
-MODEL_EXISTS = False
+MODEL_EXISTS = True
+SCORE = 999.0
 
 def ensure_nsfw_model(nsfwdet_model_path):
+    """Bypassed: Never download or verify the NSFW detector model."""
     return True
 
-SCORE = 1.1
-
-logging.getLogger("transformers").setLevel(logging.ERROR)
-
 def nsfw_image(img_data, model_path: str):
+    """Bypassed: Always return False (image is not NSFW)."""
     return False
