@@ -1,10 +1,8 @@
 import os
 import sys
-import glob
 from pathlib import Path
-from typing import List, Union, Tuple, Optional
+from typing import List, Tuple
 import numpy as np
-import cv2
 import torch
 import insightface
 from insightface.app.common import Face
@@ -68,7 +66,6 @@ def getAnalysisModel(det_size: Tuple[int, int] = (640, 640), model_name: str = "
     Load or retrieve a cached FaceAnalysis instance.
     Includes fallback from CUDA to CPU if ONNX Runtime throws execution provider errors.
     """
-    global ANALYSIS_MODELS
     key = (model_name, det_size)
     if key in ANALYSIS_MODELS:
         return ANALYSIS_MODELS[key]
@@ -109,7 +106,6 @@ def getFaceSwapModel(model_path: str):
         return FS_MODEL
 
     if not os.path.isfile(model_path):
-        # Check standard location
         candidate = os.path.join(get_insightface_path(), os.path.basename(model_path))
         if os.path.isfile(candidate):
             model_path = candidate
@@ -145,7 +141,6 @@ def analyze_faces(img_data: np.ndarray, det_size: Tuple[int, int] = (640, 640), 
         faces = analyser.get(img_data)
     except Exception as e:
         print(f"[ReActor] Warning during face detection: {e}")
-        # Retry with smaller det_size if OOM or dimensional issue occurred
         if det_size[0] > 320:
             try:
                 fallback_analyser = getAnalysisModel((320, 320), model_name=model_name)
@@ -156,7 +151,6 @@ def analyze_faces(img_data: np.ndarray, det_size: Tuple[int, int] = (640, 640), 
     if not faces:
         return []
 
-    # Sort faces from left to right based on bbox x0
     try:
         return sorted(faces, key=lambda x: x.bbox[0])
     except Exception:
