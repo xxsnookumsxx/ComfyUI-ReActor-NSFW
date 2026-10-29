@@ -1,37 +1,16 @@
 @echo off
-setlocal enabledelayedexpansion
+set "PYTHON_EXE=..\..\python_embeded\python.exe"
 
-:: Try to use embedded python first
-if exist ..\..\..\python_embeded\python.exe (
-    :: Use the embedded python
-    set PYTHON=..\..\..\python_embeded\python.exe
-) else (
-    :: Embedded python not found, check for python in the PATH
-    for /f "tokens=* USEBACKQ" %%F in (`python --version 2^>^&1`) do (
-        set PYTHON_VERSION=%%F
-    )
-    if errorlevel 1 (
-        echo I couldn't find an embedded version of Python, nor one in the Windows PATH. Please install manually.
-        pause
-        exit /b 1
-    ) else (
-        :: Use python from the PATH (if it's the right version and the user agrees)
-        echo I couldn't find an embedded version of Python, but I did find !PYTHON_VERSION! in your Windows PATH.
-        echo Would you like to proceed with the install using that version? (Y/N^)
-        set /p USE_PYTHON=
-        if /i "!USE_PYTHON!"=="Y" (
-            set PYTHON=python
-        ) else (
-            echo Okay. Please install manually.
-            pause
-            exit /b 1
-        )
-    )
+if not exist "%PYTHON_EXE%" (
+    set "PYTHON_EXE=..\..\..\python_embeded\python.exe"
 )
 
-:: Install the package
-echo Installing...
-%PYTHON% install.py
-echo Done^!
+if not exist "%PYTHON_EXE%" (
+    echo [ReActor] Embedded Python not found in parent directories, using system Python...
+    set "PYTHON_EXE=python"
+)
 
-@pause
+echo [ReActor] Using Python: %PYTHON_EXE%
+"%PYTHON_EXE%" -s -m pip install -U pip
+"%PYTHON_EXE%" install.py
+pause
