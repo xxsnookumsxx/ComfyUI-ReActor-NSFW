@@ -1,9 +1,8 @@
-albumentations>=1.4.16,<2.0.0
-# [py313-patch] insightface>=0.7.3  # installed via prebuilt wheel - see install.py
-onnx>=1.18.0
-opencv-python>=4.7.0.72
-numpy>=2.0.0
-segment_anything
-ultralytics
-
-packaging>=21.0
+numpy>=2.2.0,<2.3.0
+opencv-python>=4.10.0.84
+pillow>=10.3.0
+tqdm
+packaging
+scipy>=1.14.0
+albumentations>=1.4.0
+colour-science
