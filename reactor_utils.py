@@ -209,7 +209,6 @@ def load_face_model(filename: str):
 
 
 def get_ort_session():
-    global ORT_SESSION
     return ORT_SESSION
 
 def set_ort_session(model_path, providers) -> Any:
