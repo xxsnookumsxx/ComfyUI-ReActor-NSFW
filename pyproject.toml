@@ -1,16 +1,37 @@
 [project]
-python_requires = ">=3.10"
+
+requires-python = ">=3.10"
+
 name = "comfyui-reactor"
+
 description = "(SFW-Friendly) The Fast and Simple Face Swap Extension Node for ComfyUI, based on ReActor SD-WebUI Face Swap Extension"
+
 version = "0.6.2-b1"
+
 license = { file = "LICENSE" }
-dependencies = [# [py313-patch] "insightface==0.7.3"  # use prebuilt wheel, "onnx>=1.18.0", "opencv-python>=4.7.0.72", "numpy>=2.0.0", "segment_anything", "albumentations>=1.4.16", "ultralytics"]
+
+# Comments must be on their own lines or at the very end of the line
+# [py313-patch] insightface is handled via prebuilt wheel, so we omit it from this list
+dependencies = [
+    "onnx>=1.18.0", 
+    "opencv-python>=4.7.0.72", 
+    "numpy>=2.0.0", 
+    "segment_anything", 
+    "albumentations>=1.4.16", 
+    "ultralytics"
+]
 
 [project.urls]
+
 Repository = "https://github.com/Gourieff/ComfyUI-ReActor"
+
 # Used by Comfy Registry https://comfyregistry.org
 
+
 [tool.comfy]
+
 PublisherId = "gourieff"
+
 DisplayName = "ComfyUI-ReActor"
+
 Icon = ""
