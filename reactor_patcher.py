@@ -1,161 +1,50 @@
-import os.path as osp
+import os
 import glob
-import logging
 import insightface
-from insightface.model_zoo.model_zoo import ModelRouter, PickableInferenceSession
-from insightface.model_zoo.retinaface import RetinaFace
-from insightface.model_zoo.landmark import Landmark
-from insightface.model_zoo.attribute import Attribute
-from insightface.model_zoo.inswapper import INSwapper
-from insightface.model_zoo.arcface_onnx import ArcFaceONNX
-from insightface.app import FaceAnalysis
-from insightface.utils import DEFAULT_MP_NAME, ensure_available
+from insightface.app.common import Face
 from insightface.model_zoo import model_zoo
-import onnxruntime
-import onnx
-from onnx import numpy_helper
-from scripts.reactor_logger import logger
 
-
-def patched_get_model_log(self, **kwargs):
-    session = PickableInferenceSession(self.onnx_file, **kwargs)
-    print(f'Applied providers: {session._providers}, with options: {session._provider_options}')
-    inputs = session.get_inputs()
-    input_cfg = inputs[0]
-    input_shape = input_cfg.shape
-    outputs = session.get_outputs()
-
-    if len(outputs) >= 5:
-        return RetinaFace(model_file=self.onnx_file, session=session)
-    elif input_shape[2] == 192 and input_shape[3] == 192:
-        return Landmark(model_file=self.onnx_file, session=session)
-    elif input_shape[2] == 96 and input_shape[3] == 96:
-        return Attribute(model_file=self.onnx_file, session=session)
-    elif len(inputs) == 2 and input_shape[2] == 128 and input_shape[3] == 128:
-        return INSwapper(model_file=self.onnx_file, session=session)
-    elif len(inputs) == 2 and input_shape[2] == 256 and input_shape[3] == 256:
-        return INSwapper(model_file=self.onnx_file, session=session)
-    elif input_shape[2] == input_shape[3] and input_shape[2] >= 112 and input_shape[2] % 16 == 0:
-        return ArcFaceONNX(model_file=self.onnx_file, session=session)
-    else:
-        return None
-
-def patched_get_model(self, **kwargs):
-    session = PickableInferenceSession(self.onnx_file, **kwargs)
-    inputs = session.get_inputs()
-    input_cfg = inputs[0]
-    input_shape = input_cfg.shape
-    outputs = session.get_outputs()
-
-    if len(outputs) >= 5:
-        return RetinaFace(model_file=self.onnx_file, session=session)
-    elif input_shape[2] == 192 and input_shape[3] == 192:
-        return Landmark(model_file=self.onnx_file, session=session)
-    elif input_shape[2] == 96 and input_shape[3] == 96:
-        return Attribute(model_file=self.onnx_file, session=session)
-    elif len(inputs) == 2 and input_shape[2] == 128 and input_shape[3] == 128:
-        return INSwapper(model_file=self.onnx_file, session=session)
-    elif len(inputs) == 2 and input_shape[2] == 256 and input_shape[3] == 256:
-        return INSwapper(model_file=self.onnx_file, session=session)
-    elif input_shape[2] == input_shape[3] and input_shape[2] >= 112 and input_shape[2] % 16 == 0:
-        return ArcFaceONNX(model_file=self.onnx_file, session=session)
-    else:
-        return None
-
-
-def patched_faceanalysis_init(self, name=DEFAULT_MP_NAME, root='~/.insightface', allowed_modules=None, **kwargs):
-    onnxruntime.set_default_logger_severity(3)
+def patched_faceanalysis_init(self, name='buffalo_l', root='~/.insightface', allowed_modules=None, **kwargs):
+    onnxruntime = kwargs.get('onnxruntime', None)
+    if onnxruntime is not None:
+        kwargs.pop('onnxruntime')
     self.models = {}
-    self.model_dir = ensure_available('models', name, root=root)
-    onnx_files = glob.glob(osp.join(self.model_dir, '*.onnx'))
-    onnx_files = sorted(onnx_files)
+    self.root = os.path.expanduser(root)
+    self.name = name
+    self.model_dir = os.path.join(self.root, 'models', name)
+    onnx_files = glob.glob(os.path.join(self.model_dir, '*.onnx'))
+    onnx_files.sort()
     for onnx_file in onnx_files:
-        model = model_zoo.get_model(onnx_file, **kwargs)
+        try:
+            model = model_zoo.get_model(onnx_file, **kwargs)
+        except Exception as e:
+            print(f"[ReActor] Warning: Failed to load model {onnx_file}: {e}")
+            continue
+
         if model is None:
-            print('model not recognized:', onnx_file)
-        elif allowed_modules is not None and model.taskname not in allowed_modules:
-            print('model ignore:', onnx_file, model.taskname)
-            del model
-        elif model.taskname not in self.models and (allowed_modules is None or model.taskname in allowed_modules):
-            self.models[model.taskname] = model
-        else:
-            print('duplicated model task type, ignore:', onnx_file, model.taskname)
-            del model
-    assert 'detection' in self.models
-    self.det_model = self.models['detection']
+            print(f"[ReActor] Model not recognized: {onnx_file}")
+            continue
 
+        # Safe taskname resolution to prevent 'INSwapper' object has no attribute 'taskname'
+        taskname = getattr(model, "taskname", getattr(model, "task", None))
+        if not taskname:
+            continue
 
-def patched_faceanalysis_prepare(self, ctx_id, det_thresh=0.5, det_size=(640, 640)):
-    self.det_thresh = det_thresh
-    assert det_size is not None
-    self.det_size = det_size
-    for taskname, model in self.models.items():
-        if taskname == 'detection':
-            model.prepare(ctx_id, input_size=det_size, det_thresh=det_thresh)
-        else:
-            model.prepare(ctx_id)
+        if taskname not in self.models and (allowed_modules is None or taskname in allowed_modules):
+            self.models[taskname] = model
 
+    # Fallback default sorting if det model exists
+    if 'detection' in self.models:
+        self.det_model = self.models['detection']
+    else:
+        self.det_model = None
 
-def patched_inswapper_init(self, model_file=None, session=None):
-    self.model_file = model_file
-    self.session = session
-    model = onnx.load(self.model_file)
-    graph = model.graph
-    self.emap = numpy_helper.to_array(graph.initializer[-1])
-    self.input_mean = 0.0
-    self.input_std = 255.0
-    if self.session is None:
-        self.session = onnxruntime.InferenceSession(self.model_file, None)
-    inputs = self.session.get_inputs()
-    self.input_names = []
-    for inp in inputs:
-        self.input_names.append(inp.name)
-    outputs = self.session.get_outputs()
-    output_names = []
-    for out in outputs:
-        output_names.append(out.name)
-    self.output_names = output_names
-    assert len(self.output_names) == 1
-    input_cfg = inputs[0]
-    input_shape = input_cfg.shape
-    self.input_shape = input_shape
-    self.input_size = tuple(input_shape[2:4][::-1])
+def patch_insightface():
+    """Apply the patched FaceAnalysis.__init__ to the active insightface library."""
+    try:
+        insightface.app.FaceAnalysis.__init__ = patched_faceanalysis_init
+    except Exception as e:
+        print(f"[ReActor] Failed to patch FaceAnalysis: {e}")
 
-
-def pathced_retinaface_prepare(self, ctx_id, **kwargs):
-    if ctx_id<0:
-        self.session.set_providers(['CPUExecutionProvider'])
-    nms_thresh = kwargs.get('nms_thresh', None)
-    if nms_thresh is not None:
-        self.nms_thresh = nms_thresh
-    det_thresh = kwargs.get('det_thresh', None)
-    if det_thresh is not None:
-        self.det_thresh = det_thresh
-    input_size = kwargs.get('input_size', None)
-    if input_size is not None and self.input_size is None:
-        self.input_size = input_size
-
-
-def patch_insightface(get_model, faceanalysis_init, faceanalysis_prepare, inswapper_init, retinaface_prepare):
-    insightface.model_zoo.model_zoo.ModelRouter.get_model = get_model
-    insightface.app.FaceAnalysis.__init__ = faceanalysis_init
-    insightface.app.FaceAnalysis.prepare = faceanalysis_prepare
-    insightface.model_zoo.inswapper.INSwapper.__init__ = inswapper_init
-    insightface.model_zoo.retinaface.RetinaFace.prepare = retinaface_prepare
-
-
-# original_functions = [ModelRouter.get_model, FaceAnalysis.__init__, FaceAnalysis.prepare, INSwapper.__init__, RetinaFace.prepare]
-original_functions = [patched_get_model_log, FaceAnalysis.__init__, FaceAnalysis.prepare, INSwapper.__init__, RetinaFace.prepare]
-patched_functions = [patched_get_model, patched_faceanalysis_init, patched_faceanalysis_prepare, patched_inswapper_init, pathced_retinaface_prepare]
-
-
-def apply_patch(console_log_level):
-    if console_log_level == 0:
-        patch_insightface(*patched_functions)
-        logger.setLevel(logging.WARNING)
-    elif console_log_level == 1:
-        patch_insightface(*patched_functions)
-        logger.setLevel(logging.STATUS)
-    elif console_log_level == 2:
-        patch_insightface(*original_functions)
-        logger.setLevel(logging.INFO)
+# Apply patch immediately on module load
+patch_insightface()
