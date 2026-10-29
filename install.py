@@ -1,25 +1,30 @@
-import subprocess
 import os
 import sys
+import shutil
 import platform
+import subprocess
 import urllib.request
+import zipfile
 from pathlib import Path
 from importlib.metadata import distribution, PackageNotFoundError
 from tqdm import tqdm
 from packaging import version as pv
 
 try:
-    from folder_paths import models_dir
-except ImportError:
+    import folder_paths
+    models_dir = folder_paths.models_dir
+except Exception:
     models_dir = os.path.join(Path(__file__).parents[2], "models")
 
-req_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), "requirements.txt")
-model_url = "https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/inswapper_128.onnx"
-model_name = os.path.basename(model_url)
-models_dir_path = os.path.join(models_dir, "insightface")
-model_path = os.path.join(models_dir_path, model_name)
+# Define model paths
+insightface_dir = os.path.join(models_dir, "insightface")
+swapper_model_path = os.path.join(insightface_dir, "inswapper_128.onnx")
+submodels_dir = os.path.join(insightface_dir, "models")
+buffalo_l_dir = os.path.join(submodels_dir, "buffalo_l")
 
-# Pre-compiled InsightFace wheels for Windows
+SWAPPER_URL = "https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/inswapper_128.onnx"
+BUFFALO_L_ZIP_URL = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip"
+
 INSIGHTFACE_WHEELS = {
     (3, 10): "https://github.com/Gourieff/Assets/raw/main/Insightface/insightface-0.7.3-cp310-cp310-win_amd64.whl",
     (3, 11): "https://github.com/Gourieff/Assets/raw/main/Insightface/insightface-0.7.3-cp311-cp311-win_amd64.whl",
@@ -35,8 +40,8 @@ def is_installed(package: str, version: str = None, strict: bool = True):
         pkg_name = package.split("==")[0].split(">=")[0].split("<")[0].strip()
         dist = distribution(pkg_name)
         if version is not None:
-            installed_version = dist.version
-            if (installed_version != version and strict) or (pv.parse(installed_version) < pv.parse(version) and not strict):
+            installed_ver = dist.version
+            if (installed_ver != version and strict) or (pv.parse(installed_ver) < pv.parse(version) and not strict):
                 return False
         return True
     except PackageNotFoundError:
@@ -44,19 +49,47 @@ def is_installed(package: str, version: str = None, strict: bool = True):
     except Exception:
         return False
 
-def download(url, path, name):
+def download_file(url, target_path, desc):
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
     request = urllib.request.urlopen(url)
     total = int(request.headers.get("Content-Length", 0))
-    with tqdm(total=total, desc=f"[ReActor] Downloading {name} to {path}", unit="B", unit_scale=True, unit_divisor=1024) as progress:
-        urllib.request.urlretrieve(url, path, reporthook=lambda count, block_size, total_size: progress.update(block_size))
+    with tqdm(total=total, desc=f"[ReActor] Downloading {desc}", unit="B", unit_scale=True, unit_divisor=1024) as progress:
+        urllib.request.urlretrieve(url, target_path, reporthook=lambda count, block_size, total_size: progress.update(block_size))
 
-if not os.path.exists(models_dir_path):
-    os.makedirs(models_dir_path, exist_ok=True)
+def clean_misplaced_models():
+    """Ensure inswapper is not sitting inside antelopev2 or buffalo_l subdirectories."""
+    for pack in ["antelopev2", "buffalo_l"]:
+        pack_folder = os.path.join(submodels_dir, pack)
+        if os.path.exists(pack_folder):
+            misplaced = os.path.join(pack_folder, "inswapper_128.onnx")
+            if os.path.exists(misplaced):
+                print(f"[ReActor] Found misplaced inswapper_128.onnx in {pack_folder}. Relocating...")
+                if not os.path.exists(swapper_model_path):
+                    shutil.move(misplaced, swapper_model_path)
+                else:
+                    os.remove(misplaced)
 
-if not os.path.exists(model_path):
-    download(model_url, model_path, model_name)
+print("[ReActor] Checking directories and models...")
+os.makedirs(insightface_dir, exist_ok=True)
+os.makedirs(buffalo_l_dir, exist_ok=True)
+clean_misplaced_models()
 
-# 1. Install InsightFace (using prebuilt wheel on Windows Python 3.10-3.13)
+# 1. Download inswapper_128.onnx if missing
+if not os.path.exists(swapper_model_path):
+    download_file(SWAPPER_URL, swapper_model_path, "inswapper_128.onnx")
+
+# 2. Download buffalo_l detector pack if missing
+buffalo_files = ["1k3d68.onnx", "2d106det.onnx", "genderage.onnx", "glintr100.onnx", "det_10g.onnx"]
+if not all(os.path.exists(os.path.join(buffalo_l_dir, f)) for f in buffalo_files):
+    zip_dest = os.path.join(insightface_dir, "buffalo_l.zip")
+    download_file(BUFFALO_L_ZIP_URL, zip_dest, "buffalo_l pack")
+    print("[ReActor] Extracting buffalo_l models...")
+    with zipfile.ZipFile(zip_dest, "r") as zip_ref:
+        zip_ref.extractall(buffalo_l_dir)
+    if os.path.exists(zip_dest):
+        os.remove(zip_dest)
+
+# 3. Install InsightFace wheel
 if not is_installed("insightface"):
     py_ver = (sys.version_info.major, sys.version_info.minor)
     if platform.system() == "Windows" and py_ver in INSIGHTFACE_WHEELS:
@@ -65,41 +98,22 @@ if not is_installed("insightface"):
     else:
         run_pip("insightface==0.7.3")
 
-# 2. Install ONNX Runtime (Compatible with CUDA 12/13 & CPU fallback)
+# 4. Install ONNX Runtime
 try:
     import torch
-    cuda_version = torch.version.cuda
+    cuda_ver = torch.version.cuda
     if not torch.cuda.is_available():
-        ort = "onnxruntime"
-        if not is_installed(ort, "1.19.0", False):
-            run_pip(ort, "-U")
+        if not is_installed("onnxruntime", "1.19.0", False):
+            run_pip("onnxruntime", "-U")
     else:
-        ort = "onnxruntime-gpu"
-        print(f"[ReActor] Torch: {torch.__version__} (CUDA {cuda_version})")
-        if not is_installed(ort, "1.20.1", False):
-            run_pip(ort, "-U")
-        # Ensure standard onnxruntime is also present as fallback for CUDA 13.0 nightly environments
-        if cuda_version and float(cuda_version.split(".")[0]) >= 13:
-            print("[ReActor] CUDA 13.x detected. Note: If onnxruntime-gpu lacks cu13 DLLs, ONNX will gracefully use CPU.")
-except Exception as e:
-    print(f"[ReActor] Warning during ONNX Runtime check: {e}")
+        if not is_installed("onnxruntime-gpu", "1.20.1", False):
+            run_pip("onnxruntime-gpu", "-U")
+except Exception:
     run_pip("onnxruntime", "-U")
 
-# 3. Install remaining requirements.txt packages
+# 5. Install requirements.txt
+req_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), "requirements.txt")
 if os.path.exists(req_file):
-    with open(req_file, "r", encoding="utf-8") as file:
-        for line in file:
-            package = line.strip()
-            if not package or package.startswith("#"):
-                continue
-            strict = True
-            package_version = None
-            if "==" in package:
-                package_version = package.split("==")[1].split("<")[0].strip()
-            elif ">=" in package:
-                package_version = package.split(">=")[1].split(",")[0].strip()
-                strict = False
-            if not is_installed(package, package_version, strict):
-                run_pip(package)
+    run_pip("-r", req_file)
 
-print("[ReActor] Installation Complete (Uncensored / Python 3.13 Ready).")
+print("[ReActor] Setup complete and models placed correctly.")
